@@ -307,7 +307,7 @@ one extruder with heated bed, write:
 // ##########################################################################################
 
 //// Endstop Settings
-#define ENDSTOPPULLUPS 0 // Comment this out (using // at the start of the line) to disable the endstop pullup resistors
+// #define ENDSTOPPULLUPS 0 // Comment this out (using // at the start of the line) to disable the endstop pullup resistors
 // The pullups are needed if you directly connect a mechanical endswitch between the signal and ground pins.
 //set to true to invert the logic of the endstops
 #define ENDSTOPS_INVERTING false
