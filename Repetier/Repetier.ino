@@ -369,6 +369,11 @@ void setup()
   TCCR1B =  (_BV(WGM12) | _BV(CS10)); // no prescaler == 0.0625 usec tick | 001 = clk/1
   OCR1A=65500; //start off with a slow frequency.
   TIMSK1 |= (1<<OCIE1A); // Enable interrupt
+  
+ #ifdef CONTROLLERFAN_PIN
+    SET_OUTPUT(CONTROLLERFAN_PIN); //Set pin used for driver cooling fan
+ #endif
+  
 }
 
 /**
@@ -1810,5 +1815,34 @@ ISR(EXTRUDER_TIMER_VECTOR)
 #endif
 #endif // SIMULATE_PWM
 }
+
+#ifdef CONTROLLERFAN_PIN
+unsigned long lastMotor_fan = 0; //Save the time for when a motor was turned on last
+unsigned long lastMotorCheck_fan = 0;
+
+void controllerFan()
+{  
+  if ((millis() - lastMotorCheck_fan) >= 2500) //Not a time critical function, so we only check every 2500ms
+  {
+    lastMotorCheck_fan = millis();
+    
+    if(!READ(X_ENABLE_PIN) || !READ(Y_ENABLE_PIN) || !READ(Z_ENABLE_PIN) || !READ(E_ENABLE_PIN)) //If any of the drivers are enabled...
+    {
+      lastMotor_fan = millis(); //... set time to NOW so the fan will turn on
+    }
+    
+    if ((millis() - lastMotor_fan) >= (CONTROLLERFAN_SEC*1000UL) || lastMotor_fan == 0) //If the last time any driver was enabled, is longer since than CONTROLLERSEC...
+    {
+      WRITE(CONTROLLERFAN_PIN, LOW); //... turn the fan off
+    }
+    else
+    {
+      WRITE(CONTROLLERFAN_PIN, HIGH); //... turn the fan on
+    }
+  }
+}
+#endif
+
+
 
 

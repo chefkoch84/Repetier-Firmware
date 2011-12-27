@@ -346,10 +346,15 @@ extern int counter_periodical;
 extern volatile byte execute_periodical;
 extern byte counter_250ms;
 extern void write_monitor();
+extern void controllerFan();
+
 inline void check_periodical() {
   if(!execute_periodical) return;
   execute_periodical=0;
   manage_temperatures();
+  #ifdef CONTROLLERFAN_PIN
+    controllerFan(); //Check if fan should be turned on to cool stepper drivers down
+  #endif
   if(--counter_250ms==0) {
      if(manage_monitor<=1+NUM_EXTRUDER)
         write_monitor();
