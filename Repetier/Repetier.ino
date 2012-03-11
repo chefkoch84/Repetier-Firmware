@@ -128,6 +128,10 @@ byte relative_mode = false;  ///< Determines absolute (false) or relative Coordi
 byte relative_mode_e = false;  ///< Determines Absolute or Relative E Codes while in Absolute Coordinates mode. E is always relative in Relative Coordinates mode.
 byte debug_level = 6; ///< Bitfield defining debug output. 1 = echo, 2 = info, 4 = error, 8 = dry run., 16 = Only communication, 32 = No moves
 
+
+// Z - Axis shutdoff time 
+unsigned long last_Z_move = 0L; 
+
 //Inactivity shutdown variables
 unsigned long previous_millis_cmd = 0;
 unsigned long max_inactive_time = MAX_INACTIVE_TIME*1000L;
@@ -267,6 +271,9 @@ void setup()
   SET_OUTPUT(X_STEP_PIN);
   SET_OUTPUT(Y_STEP_PIN);
   SET_OUTPUT(Z_STEP_PIN);
+  #ifdef DOUBLE_Z_POWER
+    SET_OUTPUT(Z_1_STEP_PIN);
+  #endif
   
   //Initialize Dir Pins
 #if X_DIR_PIN>-1
@@ -278,6 +285,13 @@ void setup()
 #if Z_DIR_PIN>-1
   SET_OUTPUT(Z_DIR_PIN);
 #endif
+#ifdef DOUBLE_Z_POWER
+   #if Z_DIR_PIN>-1
+    SET_OUTPUT(Z_1_DIR_PIN);
+   #endif    
+#endif
+
+
 
   //Steppers default to disabled.
 #if X_ENABLE_PIN > -1 
@@ -292,6 +306,14 @@ void setup()
   if(!Z_ENABLE_ON) WRITE(Z_ENABLE_PIN,HIGH);
   SET_OUTPUT(Z_ENABLE_PIN);
 #endif
+
+#ifdef DOUBLE_Z_POWER
+    #if Z_1_ENABLE_PIN > -1 
+      if(!Z_ENABLE_ON) WRITE(Z_1_ENABLE_PIN,HIGH);
+      SET_OUTPUT(Z_1_ENABLE_PIN);
+    #endif
+#endif
+
 
   //endstop pullups
 #ifdef ENDSTOPPULLUPS
@@ -468,7 +490,14 @@ inline void disable_z() {
 #if (Z_ENABLE_PIN > -1)
  WRITE(Z_ENABLE_PIN,!Z_ENABLE_ON);
 #endif
+#ifdef DOUBLE_Z_POWER
+  #if (Z_1_ENABLE_PIN > -1)
+   WRITE(Z_1_ENABLE_PIN,!Z_ENABLE_ON);
+  #endif
+#endif
 }
+
+
 /** \brief Enable stepper motor for x direction. */
 inline void  enable_x() { 
 #if (X_ENABLE_PIN > -1)
@@ -481,10 +510,15 @@ inline void  enable_y() {
   WRITE(Y_ENABLE_PIN, Y_ENABLE_ON);
 #endif
 }
-/** \brief Enable stepper motor for z direction. */
+/** \brief Enable stepper motor for z direction. */ //lastZMove
 inline void  enable_z() {
 #if (Z_ENABLE_PIN > -1)
  WRITE(Z_ENABLE_PIN, Z_ENABLE_ON);
+#endif
+#ifdef DOUBLE_Z_POWER
+  #if (Z_1_ENABLE_PIN > -1)
+     WRITE(Z_1_ENABLE_PIN, Z_ENABLE_ON);
+    #endif
 #endif
 }
 /** \brief Optimized division 
@@ -1394,8 +1428,17 @@ inline long bresenham_step() {
       }
       if(cur->dir & 4) {
         WRITE(Z_DIR_PIN,!INVERT_Z_DIR);
+         #ifdef DOUBLE_Z_POWER
+          WRITE(Z_1_DIR_PIN,!INVERT_Z_DIR);
+        #endif
+        
       } else {
         WRITE(Z_DIR_PIN,INVERT_Z_DIR);
+         #ifdef DOUBLE_Z_POWER
+            WRITE(Z_1_DIR_PIN,INVERT_Z_DIR);
+        #endif
+        
+        
       }
 #if USE_OPS==0 && !defined(USE_ADVANCE)
       if(cur->dir & 8) {
@@ -1476,12 +1519,21 @@ inline long bresenham_step() {
     if(cur->dir & 64) {
       if((cur->error[2] -= cur->delta[2]) < 0) {
         WRITE(Z_STEP_PIN,HIGH);
+        # ifdef DOUBLE_Z_POWER
+          WRITE(Z_1_STEP_PIN,HIGH);
+        #endif
         cur->error[2] += cur_errupd;
       }
+      last_Z_move = millis();
+      
     }
     WRITE(X_STEP_PIN,LOW);
     WRITE(Y_STEP_PIN,LOW);
     WRITE(Z_STEP_PIN,LOW);
+    # ifdef DOUBLE_Z_POWER
+          WRITE(Z_1_STEP_PIN,LOW);
+    #endif
+    
 #if USE_OPS==0 && !defined(USE_ADVANCE)
     extruder_unstep();
 #endif
@@ -1588,6 +1640,16 @@ inline long bresenham_step() {
        if(DISABLE_Y) disable_y();
        if(DISABLE_Z) disable_z();
      }
+     
+     if ( last_Z_move != 0 && millis() - last_Z_move > 1000) 
+     {
+         disable_z();
+     }
+     else
+     {
+       enable_z();
+     }
+    
    }  
 #ifdef DEBUG_FREE_MEMORY
     check_mem();
