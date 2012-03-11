@@ -79,7 +79,7 @@
 // 99 Generic thermistor table
 // 100 is AD595
 // 101 is MAX6675
-#define EXT0_TEMPSENSOR_TYPE 5
+#define EXT0_TEMPSENSOR_TYPE 1
 // Position in analog input table below for reading temperatures or pin enabling SS for MAX6675
 #define EXT0_TEMPSENSOR_PIN 0
 // WHich pin enables the heater
@@ -106,7 +106,7 @@
 */
 #define EXT0_HEAT_MANAGER 1
 /** Wait x seconds, after reaching target temperature. Only used for M109 */
-#define EXT0_WATCHPERIOD 40
+#define EXT0_WATCHPERIOD 0
 
 /** \brief The maximum value, I-gain can contribute to the output. 
 
@@ -117,7 +117,7 @@ Values for startes:
 
 The precice values may differ for different nozzle/resistor combination. 
 */
-#define EXT0_PID_INTEGRAL_DRIVE_MAX 130
+#define EXT0_PID_INTEGRAL_DRIVE_MAX 180
 /** \brief lower value for integral part
 
 The I state should converge to the exact heater output needed for the target temperature.
@@ -139,7 +139,7 @@ WATCH OUT: This value was in 0,01 units in earlier versions!
 /** \brief Faktor for the advance algorithm. 0 disables the algorithm. */
 #define EXT0_ADVANCE_K 0.0f
 /** Number of entries in the user thermistortable 0. Set to 0 to disable it. */
-#define NUM_TEMPS_USERTHERMISTOR0 28
+#define NUM_TEMPS_USERTHERMISTOR0 30
 /** Number of entries in the user thermistortable 1. Set to 0 to disable it. */
 #define NUM_TEMPS_USERTHERMISTOR1 0
 /** Number of entries in the user thermistortable 2. Set to 0 to disable it. */
@@ -176,13 +176,21 @@ If you have a sprinter temperature table, you have to multiply the first value w
 This firmware works with increased precision, so the value read goes from 0 to 4095 and the temperature is 
 temperature*8.
 */
-#define USER_THERMISTORTABLE0  {\
-  {1*4,864*8},{21*4,300*8},{25*4,290*8},{29*4,280*8},{33*4,270*8},{39*4,260*8},{46*4,250*8},{54*4,240*8},{64*4,230*8},{75*4,220*8},\
-  {90*4,210*8},{107*4,200*8},{128*4,190*8},{154*4,180*8},{184*4,170*8},{221*4,160*8},{265*4,150*8},{316*4,140*8},{375*4,130*8},\
-  {441*4,120*8},{513*4,110*8},{588*4,100*8},{734*4,80*8},{856*4,60*8},{938*4,40*8},{986*4,20*8},{1008*4,0*8},{1018*4,-20*8}	}
+//#define USER_THERMISTORTABLE0  {\
+//  {1*4,864*8},{21*4,300*8},{25*4,290*8},{29*4,280*8},{33*4,270*8},{39*4,260*8},{46*4,250*8},{54*4,240*8},{64*4,230*8},{75*4,220*8},\
+//  {90*4,210*8},{107*4,200*8},{128*4,190*8},{154*4,180*8},{184*4,170*8},{221*4,160*8},{265*4,150*8},{316*4,140*8},{375*4,130*8},\
+//  {441*4,120*8},{513*4,110*8},{588*4,100*8},{734*4,80*8},{856*4,60*8},{938*4,40*8},{986*4,20*8},{1008*4,0*8},{1018*4,-20*8}	}
+// ./createTemperatureLookup.py --r0=22000 --t0=25 --r1=0 --r2=824 --beta=4300 --max-adc=1023
+// r0: 22000
+// t0: 25
+// r1: 0
+// r2: 824
+// beta: 4300
+// max adc: 1023
+//#define NUMTEMPS 30
 
-#define USER_THERMISTORTABLE1  {}  
-#define USER_THERMISTORTABLE2  {}  
+#define USER_THERMISTORTABLE0  {{1*4, 748*8},{36*4, 276*8}, {71*4, 230*8},  {106*4, 205*8},   {141*4, 189*8},   {176*4, 176*8},   {211*4, 166*8},   {246*4, 157*8},   {281*4, 149*8},   {316*4, 143*8},   {351*4, 136*8},   {386*4, 131*8},   {421*4, 125*8},   {456*4, 120*8},   {491*4, 115*8},   {526*4, 111*8},   {561*4, 106*8},   {596*4, 101*8},   {631*4, 97*8},   {666*4, 92*8},   {701*4, 87*8},   {736*4, 82*8},   {771*4, 77*8},   {806*4, 72*8},   {841*4, 66*8},   {876*4, 59*8},   {911*4, 51*8},   {946*4, 42*8},   {981*4, 28*8},   {1016*4, -4*8}}
+//#define USER_THERMISTORTABLE1  {}  
 
 /** If defined, creates a thermistortable at startup.
 
@@ -206,7 +214,7 @@ The capacitor is for reducing noise from long thermistor cable. If you don't hav
 
 If you don't need the generic table, uncomment the following define.
 */
-//#define USE_GENERIC_THERMISTORTABLE 1
+#define USE_GENERIC_THERMISTORTABLE 0
 /** Reference resistance */
 #define GENERIC_THERM_R0 1042.7
 /** Temperature at reference resistance */
@@ -232,18 +240,20 @@ for more details.
 // ############# Heated bed configuration ########################
 
 /** \brief Switches fast between config for heated bed and non heated bed */
-#define HAVE_HEATED_BED false
+#define HAVE_HEATED_BED true
 
 #if HAVE_HEATED_BED==true
 // Select type of your heated bed. It's the same as for EXT0_TEMPSENSOR_TYPE
 // set to 0 if you don't have a heated bed
-#define HEATED_BED_SENSOR_TYPE 0
+#define HEATED_BED_SENSOR_TYPE 5
 /** Index of analog sensor to read temperature of heated bed. look at ANALOG_INPUT_CHANNELS for the position or to add the Arduino pin id there. */
 #define HEATED_BED_SENSOR_PIN 1
 /** \brief Pin to enable heater for bed. */
 #define HEATED_BED_HEATER_PIN HEATER_1_PIN
 // How often the temperature of the heated bed is set (msec)
-#define HEATED_BED_SET_INTERVAL 5000
+//#define HEATED_BED_SET_INTERVAL 5000
+#define HEATED_BED_SET_INTERVAL 500
+
 #else
 #define HEATED_BED_SENSOR_TYPE 0
 #define HEATED_BED_SENSOR_PIN -1
@@ -258,7 +268,7 @@ for more details.
 #define ANALOG_SUPERSAMPLE 10
 /** The number of analog sensors, we need to read out. These are the thermistors used for temperature
 reading of the extruder and heated bed. */
-#define NUM_ANALOG_SENSORS 1
+#define NUM_ANALOG_SENSORS 2
 /** Number of digital temp. sensors like MAX6675 */
 #define NUM_DIGITAL_SENSORS 0
 #define TEMP_PID true
@@ -287,7 +297,8 @@ In the configs of the sensor, use the index in this array. For the typical combi
 one extruder with heated bed, write:
 #define  ANALOG_INPUT_CHANNELS {TEMP_0_PIN,TEMP_1_PIN}
 */
-#define ANALOG_INPUT_CHANNELS {TEMP_0_PIN}
+//#define ANALOG_INPUT_CHANNELS {TEMP_0_PIN}
+#define   ANALOG_INPUT_CHANNELS {TEMP_0_PIN,TEMP_1_PIN}
 // Bits of the ADC converter
 #define ANALOG_INPUT_BITS 10
 // Build median from 2^ANALOG_INPUT_SAMPLE samples
