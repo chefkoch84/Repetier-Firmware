@@ -29,6 +29,9 @@
 // Sanguinololu 1.2 and above = 62
 // Gen7 1.1 and above = 7
 #define MOTHERBOARD 33 
+
+#define DOUBLE_Z_POWER
+
 #include <avr/io.h>
 #include "pins.h"
 
