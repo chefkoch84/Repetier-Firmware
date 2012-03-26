@@ -28,6 +28,7 @@
 #include "SdFat.h"
 #endif
 
+
 /** \brief Waits until movement cache is empty.
 
   Some commands expect no movement, before they can execute. This function
@@ -42,11 +43,15 @@ void wait_until_end_of_move() {
 }
 void print_temperatures() {
 #if HEATED_BED_SENSOR_TYPE==0 
-  out.println_int_P(PSTR("T:"),extruder_get_temperature()>>CELSIUS_EXTRA_BITS); 
+  out.print_int_P(PSTR("T:"),extruder_get_temperature()>>CELSIUS_EXTRA_BITS); 
 #else
   out.print_int_P(PSTR("T:"),extruder_get_temperature()>>CELSIUS_EXTRA_BITS); 
-  out.println_int_P(PSTR(" B:"),heated_bed_get_temperature()>>CELSIUS_EXTRA_BITS); 
+  out.print_int_P(PSTR(" B:"),heated_bed_get_temperature()>>CELSIUS_EXTRA_BITS); 
 #endif
+#ifdef TEMP_PID
+  out.print_int_P(PSTR(" @:"),(int)current_extruder_out);
+#endif
+  out.println();
 }
 /**
   \brief Execute the command stored in com.
@@ -73,11 +78,12 @@ void process_command(GCode *com)
           queue_move(ALWAYS_CHECK_ENDSTOPS);
         break;
       case 4: // G4 dwell
+        wait_until_end_of_move();
         codenum = 0;
         if(GCODE_HAS_P(com)) codenum = com->P; // milliseconds to wait
         if(GCODE_HAS_S(com)) codenum = (long)com->S * 1000; // seconds to wait
         codenum += millis();  // keep track of when we started waiting
-        while(millis()  < codenum ){
+        while((unsigned long)(codenum-millis())  < 2000000000 ){
           gcode_read_serial();
           check_periodical();
         }
@@ -105,10 +111,11 @@ void process_command(GCode *com)
             queue_move(true);
             wait_until_end_of_move();
             printer_state.currentPositionSteps[0] = 0;
-            printer_state.destinationSteps[0] = axis_steps_per_unit[0]*-5 * X_HOME_DIR;
+            printer_state.destinationSteps[0] = axis_steps_per_unit[0]*-ENDSTOP_X_BACK_MOVE * X_HOME_DIR;
             queue_move(true);
             wait_until_end_of_move();
-            printer_state.destinationSteps[0] = axis_steps_per_unit[0]*10 * X_HOME_DIR;
+            printer_state.feedrate/=ENDSTOP_X_RETEST_REDUCTION_FACTOR;
+            printer_state.destinationSteps[0] = axis_steps_per_unit[0]*2*ENDSTOP_X_BACK_MOVE * X_HOME_DIR;
             queue_move(true);    
             wait_until_end_of_move();
             printer_state.currentPositionSteps[0] = (X_HOME_DIR == -1) ? 0 : printer_state.xMaxSteps;
@@ -125,10 +132,11 @@ void process_command(GCode *com)
             queue_move(true);         
             wait_until_end_of_move();
             printer_state.currentPositionSteps[1] = 0;
-            printer_state.destinationSteps[1] = axis_steps_per_unit[1]*-5 * Y_HOME_DIR;
+            printer_state.destinationSteps[1] = axis_steps_per_unit[1]*-ENDSTOP_Y_BACK_MOVE * Y_HOME_DIR;
             queue_move(true);          
             wait_until_end_of_move();
-            printer_state.destinationSteps[1] = axis_steps_per_unit[1]*10 * Y_HOME_DIR;
+            printer_state.feedrate/=ENDSTOP_Y_RETEST_REDUCTION_FACTOR;
+            printer_state.destinationSteps[1] = axis_steps_per_unit[1]*2*ENDSTOP_Y_BACK_MOVE * Y_HOME_DIR;
             queue_move(true);
             wait_until_end_of_move();
             printer_state.currentPositionSteps[1] = (Y_HOME_DIR == -1) ? 0 : printer_state.yMaxSteps;
@@ -145,10 +153,11 @@ void process_command(GCode *com)
             queue_move(true);
             wait_until_end_of_move();          
             printer_state.currentPositionSteps[2] = 0;
-            printer_state.destinationSteps[2] = axis_steps_per_unit[2]*-2 * Z_HOME_DIR;
+            printer_state.destinationSteps[2] = axis_steps_per_unit[2]*-ENDSTOP_Z_BACK_MOVE * Z_HOME_DIR;
             queue_move(true);
             wait_until_end_of_move();          
-            printer_state.destinationSteps[2] = axis_steps_per_unit[2]*10 * Z_HOME_DIR;
+            printer_state.feedrate/=ENDSTOP_Z_RETEST_REDUCTION_FACTOR;
+            printer_state.destinationSteps[2] = axis_steps_per_unit[2]*2*ENDSTOP_Z_BACK_MOVE * Z_HOME_DIR;
             queue_move(true);
             wait_until_end_of_move();          
             printer_state.currentPositionSteps[2] = (Z_HOME_DIR == -1) ? 0 : printer_state.zMaxSteps;
@@ -275,11 +284,18 @@ void process_command(GCode *com)
         break;
 #endif
       case 104: // M104
+        previous_millis_cmd = millis();
         if(DEBUG_DRYRUN) break;
+#ifdef EXACT_TEMPERATURE_TIMING
         wait_until_end_of_move();
+#else
+        if(GCODE_HAS_P(com))
+          wait_until_end_of_move();
+#endif
         if (GCODE_HAS_S(com)) extruder_set_temperature(com->S<<CELSIUS_EXTRA_BITS);
         break;
       case 140: // M140 set bed temp
+        previous_millis_cmd = millis();
         if(DEBUG_DRYRUN) break;
         if (GCODE_HAS_S(com)) heated_bed_set_temperature(com->S<<CELSIUS_EXTRA_BITS);
         break;
@@ -288,23 +304,33 @@ void process_command(GCode *com)
         break;
       case 109: // M109 - Wait for extruder heater to reach target.
         {
+          previous_millis_cmd = millis();
           if(DEBUG_DRYRUN) break;
           wait_until_end_of_move();
           if (GCODE_HAS_S(com)) extruder_set_temperature(com->S<<CELSIUS_EXTRA_BITS);
-          if(current_extruder->currentTemperatureC >= current_extruder->targetTemperature) break;
+          if(abs(current_extruder->currentTemperatureC - current_extruder->targetTemperatureC)<(3<<CELSIUS_EXTRA_BITS)) break; // Already in range
+          bool dir = current_extruder->currentTemperatureC < current_extruder->targetTemperatureC;
           codenum = millis(); 
-          long waituntil = 0;
-          while(waituntil==0 || (waituntil!=0 && waituntil>millis())) {
-            if( (millis() - codenum) > 1000 ) { //Print Temp Reading every 1 second while heating up.
+          unsigned long waituntil = 0;
+          unsigned long cur_time;
+          do {
+            cur_time = millis();
+            if( (cur_time - codenum) > 1000 ) { //Print Temp Reading every 1 second while heating up.
               print_temperatures();
-              codenum = millis(); 
+              codenum = cur_time; 
             }
             check_periodical();
             gcode_read_serial();
-            if(waituntil==0 && current_extruder->currentTemperatureC >= current_extruder->targetTemperatureC)
-              waituntil = millis()+1000*(long)current_extruder->watchPeriod; // now wait for temp. to stabalize
-          }
+            if((waituntil==0 && (dir ? current_extruder->currentTemperatureC >= current_extruder->targetTemperatureC:current_extruder->currentTemperatureC <= current_extruder->targetTemperatureC))
+#ifdef TEMP_HYSTERESIS
+            || (waituntil!=0 && (abs(current_extruder->currentTemperatureC - current_extruder->targetTemperatureC)>>CELSIUS_EXTRA_BITS)>TEMP_HYSTERESIS)            
+#endif
+            ) {
+              waituntil = cur_time+1000UL*(unsigned long)current_extruder->watchPeriod; // now wait for temp. to stabalize
+            }
+          } while(waituntil==0 || (waituntil!=0 && (unsigned long)(waituntil-cur_time)<2000000000UL));
         }
+        previous_millis_cmd = millis();
         break;
       case 190: // M190 - Wait bed for heater to reach target.
         if(DEBUG_DRYRUN) break;
@@ -320,29 +346,51 @@ void process_command(GCode *com)
           check_periodical();
         }
 #endif
+        previous_millis_cmd = millis();
         break;
       case 106: //M106 Fan On
-        wait_until_end_of_move();
-        if (GCODE_HAS_S(com)){
+#if FAN_PIN>=0
+        //wait_until_end_of_move(); // uncomment this to change the speed exactly at that point, but it may cause blobs if you do!
+#ifdef SIMULATE_FAN_PWM
+        if (GCODE_HAS_S(com))
+            fan_speed = constrain(com->S,0,255)<<4;
+        else
+            fan_speed = 4080;
+#else
+        if (GCODE_HAS_S(com) && com->S<255){
             digitalWrite(FAN_PIN, HIGH);
             analogWrite(FAN_PIN, constrain(com->S,0,255) );
         }
         else
             digitalWrite(FAN_PIN, HIGH);
+#endif
+#endif
         break;
       case 107: //M107 Fan Off
-        wait_until_end_of_move();
-        analogWrite(FAN_PIN, 0);
-        
+#if FAN_PIN>=0
+        //wait_until_end_of_move(); // uncomment this to change the speed exactly at that point, but it may cause blobs if you do!
+#ifdef SIMULATE_FAN_PWM
+        fan_speed=0;
+#else
+        analogWrite(FAN_PIN, 0);        
         digitalWrite(FAN_PIN, LOW);
+#endif
+#endif
         break;
-      case 80: // M81 - ATX Power On
+      case 80: // M80 - ATX Power On
         wait_until_end_of_move();
-        if(PS_ON_PIN > -1) pinMode(PS_ON_PIN,OUTPUT); //GND
+        previous_millis_cmd = millis();
+        if(PS_ON_PIN > -1) {
+          pinMode(PS_ON_PIN,OUTPUT); //GND
+          digitalWrite(PS_ON_PIN, LOW);
+        }
         break;
       case 81: // M81 - ATX Power Off
         wait_until_end_of_move();
-        if(PS_ON_PIN > -1) pinMode(PS_ON_PIN,INPUT); //Floating
+        if(PS_ON_PIN > -1) {
+          pinMode(PS_ON_PIN,OUTPUT); //GND
+          digitalWrite(PS_ON_PIN, HIGH);
+        }
         break;
       case 82:
         relative_mode_e = false;
@@ -392,27 +440,27 @@ void process_command(GCode *com)
         wait_until_end_of_move();
       	#if (X_MIN_PIN > -1)
       	out.print_P(PSTR("x_min:"));
-        out.print_P((digitalRead(X_MIN_PIN)^ENDSTOPS_INVERTING)?PSTR("H "):PSTR("L "));
+        out.print_P((digitalRead(X_MIN_PIN)^ENDSTOP_X_MIN_INVERTING)?PSTR("H "):PSTR("L "));
       	#endif
       	#if (X_MAX_PIN > -1)
       	out.print_P(PSTR("x_max:"));
-        out.print_P((digitalRead(X_MAX_PIN)^ENDSTOPS_INVERTING)?PSTR("H "):PSTR("L "));
+        out.print_P((digitalRead(X_MAX_PIN)^ENDSTOP_X_MAX_INVERTING)?PSTR("H "):PSTR("L "));
       	#endif
       	#if (Y_MIN_PIN > -1)
       	out.print_P(PSTR("y_min:"));
-        out.print_P((digitalRead(Y_MIN_PIN)^ENDSTOPS_INVERTING)?PSTR("H "):PSTR("L "));
+        out.print_P((digitalRead(Y_MIN_PIN)^ENDSTOP_Y_MIN_INVERTING)?PSTR("H "):PSTR("L "));
       	#endif
       	#if (Y_MAX_PIN > -1)
       	out.print_P(PSTR("y_max:"));
-        out.print_P((digitalRead(Y_MAX_PIN)^ENDSTOPS_INVERTING)?PSTR("H "):PSTR("L "));
+        out.print_P((digitalRead(Y_MAX_PIN)^ENDSTOP_Y_MAX_INVERTING)?PSTR("H "):PSTR("L "));
       	#endif
       	#if (Z_MIN_PIN > -1)
       	out.print_P(PSTR("z_min:"));
-        out.print_P((digitalRead(Z_MIN_PIN)^ENDSTOPS_INVERTING)?PSTR("H "):PSTR("L "));
+        out.print_P((digitalRead(Z_MIN_PIN)^ENDSTOP_Z_MIN_INVERTING)?PSTR("H "):PSTR("L "));
       	#endif
       	#if (Z_MAX_PIN > -1)
       	out.print_P(PSTR("z_max:"));
-        out.print_P((digitalRead(Z_MAX_PIN)^ENDSTOPS_INVERTING)?PSTR("H "):PSTR("L "));
+        out.print_P((digitalRead(Z_MAX_PIN)^ENDSTOP_Z_MAX_INVERTING)?PSTR("H "):PSTR("L "));
       	#endif
         out.println();
       	break;

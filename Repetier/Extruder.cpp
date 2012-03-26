@@ -60,7 +60,9 @@ byte manage_monitor = 255; ///< Temp. we want to monitor with our host. 1+NUM_EX
 int counter_periodical=0;
 volatile byte execute_periodical=0;
 byte counter_250ms=25;
-
+#ifdef TEMP_PID
+byte current_extruder_out=0;
+#endif
 #if HEATED_BED_HEATER_PIN > -1
 unsigned long last_bed_set = 0;       ///< Time of last temperature setting for heated bed. So we can limit settings to desired frequency.
 #endif
@@ -70,7 +72,7 @@ extern int read_max6675(byte ss_pin);
 #endif
 
 #if ANALOG_INPUTS>0
-static uint8 osAnalogInputChannels[] PROGMEM = ANALOG_INPUT_CHANNELS;
+const static uint8 osAnalogInputChannels[] PROGMEM = ANALOG_INPUT_CHANNELS;
 static uint8 osAnalogInputCounter[ANALOG_INPUTS];
 static uint osAnalogInputBuildup[ANALOG_INPUTS];
 static uint8 osAnalogInputPos=0; // Current sampling position
@@ -334,20 +336,20 @@ const short temptable_3[NUMTEMPS_3][2] PROGMEM = {
   {441*4,120*8},{513*4,110*8},{588*4,100*8},{734*4,80*8},{856*4,60*8},{938*4,40*8},{986*4,20*8},{1008*4,0*8},{1018*4,-20*8}	};
 
 #define NUMTEMPS_4 20
-short temptable_4[NUMTEMPS_4][2] PROGMEM = {
+const short temptable_4[NUMTEMPS_4][2] PROGMEM = {
    {1*4, 430*8},{54*4, 137*8},{107*4, 107*8},{160*4, 91*8},{213*4, 80*8},{266*4, 71*8},{319*4, 64*8},{372*4, 57*8},{425*4, 51*8},
    {478*4, 46*8},{531*4, 41*8},{584*4, 35*8},{637*4, 30*8},{690*4, 25*8},{743*4, 20*8},{796*4, 14*8},{849*4, 7*8},{902*4, 0*8},
    {955*4, -11*8},{1008*4, -35*8}};
 #if NUM_TEMPS_USERTHERMISTOR0>0
-short temptable_5[NUM_TEMPS_USERTHERMISTOR0][2] PROGMEM = USER_THERMISTORTABLE0 ;
+const short temptable_5[NUM_TEMPS_USERTHERMISTOR0][2] PROGMEM = USER_THERMISTORTABLE0 ;
 #endif
 #if NUM_TEMPS_USERTHERMISTOR1>0
-short temptable_6[NUM_TEMPS_USERTHERMISTOR1][2] PROGMEM = USER_THERMISTORTABLE1 ;
+const short temptable_6[NUM_TEMPS_USERTHERMISTOR1][2] PROGMEM = USER_THERMISTORTABLE1 ;
 #endif
 #if NUM_TEMPS_USERTHERMISTOR2>0
-short temptable_7[NUM_TEMPS_USERTHERMISTOR2][2] PROGMEM = USER_THERMISTORTABLE2 ;
+const short temptable_7[NUM_TEMPS_USERTHERMISTOR2][2] PROGMEM = USER_THERMISTORTABLE2 ;
 #endif
-const short *temptables[7] PROGMEM = {(short int *)&temptable_1[0][0],(short int *)&temptable_2[0][0],(short int *)&temptable_3[0][0],(short int *)&temptable_4[0][0]
+const short * const temptables[7] PROGMEM = {(short int *)&temptable_1[0][0],(short int *)&temptable_2[0][0],(short int *)&temptable_3[0][0],(short int *)&temptable_4[0][0]
 #if NUM_TEMPS_USERTHERMISTOR0>0
 ,(short int *)&temptable_5[0][0]
 #else
@@ -381,6 +383,10 @@ int read_raw_temperature(byte type,byte pin) {
     case 7:
     case 99:
       return (1023<<(2-ANALOG_REDUCE_BITS))-(osAnalogInputValues[pin]>>(ANALOG_REDUCE_BITS)); // Convert to 10 bit result
+    case 50: // User defined PTC table
+    case 51:
+    case 52:
+      return (osAnalogInputValues[pin]>>(ANALOG_REDUCE_BITS)); // Convert to 10 bit result    
     case 100: // AD595
       return (osAnalogInputValues[pin]>>(ANALOG_REDUCE_BITS));
 #ifdef SUPPORT_MAX6675
@@ -423,6 +429,28 @@ int conv_raw_temp(byte type,int raw_temp) {
       }
       // Overflow: Set to last value in the table
       return newtemp;}
+    case 50: // User defined PTC thermistor
+    case 51:
+    case 52:
+    {
+      type-=46;
+      byte num = pgm_read_byte(&temptables_num[type])<<1;
+      byte i=2;
+      const short *temptable = (const short *)pgm_read_word(&temptables[type]); //pgm_read_word_near(&temptables[type]);
+      short oldraw = pgm_read_word(&temptable[0]);
+      short oldtemp = pgm_read_word(&temptable[1]);
+      short newraw,newtemp;
+      while(i<num) {
+        newraw = pgm_read_word(&temptable[i++]);
+        newtemp = pgm_read_word(&temptable[i++]);
+        if (newraw > raw_temp)
+          return oldtemp + (long)(raw_temp-oldraw)*(long)(newtemp-oldtemp)/(newraw-oldraw);
+        oldtemp = newtemp;
+        oldraw = newraw;
+      }
+      // Overflow: Set to last value in the table
+      return newtemp;
+    }
     case 100: // AD595
       return (int)((long)raw_temp * 500/(1024<<(2-ANALOG_REDUCE_BITS)));
 #ifdef SUPPORT_MAX6675
@@ -446,7 +474,8 @@ int conv_raw_temp(byte type,int raw_temp) {
         oldraw = newraw;
       }
       // Overflow: Set to last value in the table
-      return newtemp;}
+      return newtemp;
+    }
 #endif
   }
 }
@@ -482,6 +511,28 @@ int conv_temp_raw(byte type,int temp) {
       }
       // Overflow: Set to last value in the table
       return (1023<<(2-ANALOG_REDUCE_BITS))-newraw;
+    }
+    case 50: // user defined PTC thermistor
+    case 51:
+    case 52:
+    {
+      type-=46;
+      byte num = pgm_read_byte(&temptables_num[type])<<1;
+      byte i=2;
+      const short *temptable = (const short *)pgm_read_word(&temptables[type]); //pgm_read_word(&temptables[type]);
+      short oldraw = pgm_read_word(&temptable[0]);
+      short oldtemp = pgm_read_word(&temptable[1]);
+      short newraw,newtemp;
+      while(i<num) {
+        newraw = pgm_read_word(&temptable[i++]);
+        newtemp = pgm_read_word(&temptable[i++]);
+        if (newtemp > temp)
+          return oldraw + (long)(oldtemp-temp)*(long)(oldraw-newraw)/(oldtemp-newtemp);
+        oldtemp = newtemp;
+        oldraw = newraw;
+      }
+      // Overflow: Set to last value in the table
+      return newraw;
     }
     case 100: // HEATER_USES_AD595
       return (int)((long)temp * (1024<<(2-ANALOG_REDUCE_BITS))/ 500);
@@ -524,7 +575,7 @@ disabled, the function is not called.
 */
 void write_monitor() {
     out.print_long_P(PSTR("MTEMP:"),millis());
-    if(manage_monitor<=NUM_EXTRUDER) {
+    if(manage_monitor<NUM_EXTRUDER) {
       Extruder *e = &extruder[manage_monitor];
       out.print_int_P(PSTR(" "),e->currentTemperatureC>>CELSIUS_EXTRA_BITS); 
       out.print_int_P(PSTR(" "),e->targetTemperatureC>>CELSIUS_EXTRA_BITS);
@@ -577,7 +628,7 @@ void manage_temperatures() {
 #if SCALE_PID_TO_MAX==1
            pidTerm = (pidTerm*act->pidMax)>>8;
 #endif
-           output = constrain(pidTerm/100, 0, act->pidMax) & 0xff;   
+           output = constrain(pidTerm/100, 0, act->pidMax) & 0xff;
           /*if(counter_250ms==1) { // some debug infos
             out.print_long_P(PSTR("PID:"),act->tempIState);
             out.print_long_P(PSTR(" "),pidTerm);
@@ -585,6 +636,7 @@ void manage_temperatures() {
             out.println_long_P(PSTR(" "),dgain);
           } */
          }
+         if(act==current_extruder) current_extruder_out = output;   
 #ifdef SIMULATE_PWM
         act->pwm = output<<3;
 #else

@@ -296,10 +296,31 @@ void gcode_resend() {
   If not, a resend and ok is send.
 */
 void gcode_checkinsert(GCode *act) {
-  if(GCODE_HAS_M(act) && act->M==110) { // Reset line number
-    gcode_lastN = gcode_actN;
-    out.println_P(PSTR("ok"));
-    return;
+  if(GCODE_HAS_M(act)) {
+   if(act->M==110) { // Reset line number
+     gcode_lastN = gcode_actN;
+     out.println_P(PSTR("ok"));
+     return;
+   }
+   if(act->M==112) { // Emergency kill - freeze printer
+     cli(); // Don't allow interrupts to do their work
+     kill(false);
+     manage_temperatures();
+#ifdef SIMULATE_PWM
+#if NUM_EXTRUDER==1
+     WRITE(EXT0_HEATER_PIN,0 ); 
+#else
+  for(byte e=0;e<NUM_EXTRUDER;e++) {
+    Extruder *ext = &extruder[e];
+    digitalWrite(ext->heaterPin,off);
+  }
+#endif
+#endif // SIMULATE_PWM
+#ifdef SIMULATE_FAN_PWM
+      WRITE(FAN_PIN,0 ); 
+#endif
+     while(1) {}
+   }
   }
   if(GCODE_HAS_N(act)) {
     if((((gcode_lastN+1) & 0xffff)!=(gcode_actN&0xffff))) {
@@ -442,13 +463,9 @@ void gcode_read_serial() {
   while( filesize > sdpos && gcode_wpos < MAX_CMD_SIZE) {  // consume data until no data or buffer full
     gcode_lastdata = millis();
     int n = file.read();
-    sdpos = file.curPosition();
-    if(sdpos >= filesize || n==-1){
-       sdmode = false;
-       out.println_P(PSTR("Done printing file"));
-       gcode_wpos = 0;
-       break;
-    }
+    if(n==-1) break;
+
+    sdpos++; // = file.curPosition();
     gcode_transbuffer[gcode_wpos++] = (byte)n;
   
     // first lets detect, if we got an old type ascii command
@@ -487,6 +504,9 @@ void gcode_read_serial() {
       }           
     }
   }
+     sdmode = false;
+     out.println_P(PSTR("Done printing file"));
+     gcode_wpos = 0;
 #endif
 }
 

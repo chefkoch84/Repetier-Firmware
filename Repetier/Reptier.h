@@ -39,8 +39,10 @@ extern void initsd();
 #define uint32 uint32_t
 #define int32 int32_t
 
-#if MOTHERBOARD==6 || MOTHERBOARD==62
+#if MOTHERBOARD==6 || MOTHERBOARD==62 || MOTHERBOARD==7
+#if MOTHERBOARD!=7
 #define SIMULATE_PWM
+#endif
 #define EXTRUDER_TIMER_VECTOR TIMER2_COMPA_vect
 #define EXTRUDER_OCR OCR2A
 #define EXTRUDER_TCCR TCCR2A
@@ -128,6 +130,10 @@ extern void heated_bed_set_temperature(int temp_celsius);
 //extern long extruder_steps_to_position(float value,byte relative);
 extern void extruder_set_direction(byte steps);
 extern void extruder_disable();
+#ifdef TEMP_PID
+extern byte current_extruder_out;
+#endif
+
 /** \brief Sends the high-signal to the stepper for next extruder step. 
 
 Call this function only, if interrupts are disabled.
@@ -259,6 +265,7 @@ typedef struct { // RAM usage: 72 Byte
   float maxZJerk;                   ///< Maximum allowed jerk in z direction in mm/s
   long offsetX;                     ///< X-offset for different extruder positions.
   long offsetY;                     ///< Y-offset for different extruder positions.
+  unsigned int vMaxReached;       ///< MAximumu reached speed
 } PrinterState;
 extern PrinterState printer_state;
 
@@ -323,6 +330,9 @@ typedef struct { // RAM usage: 24*4+15 = 111 Byte
 #if USE_OPS==1
   long opsReverseSteps;           ///< How many steps are needed to reverse retracted filament at full speed
 #endif
+#ifdef DEBUG_STEPCOUNT
+  long totalStepsRemaining;
+#endif
 } PrintLine;
 
 extern PrintLine lines[];
@@ -331,6 +341,9 @@ extern byte lines_pos; // Position for executing line movement
 extern volatile byte lines_count; // Number of lines cached 0 = nothing to do
 extern byte printmoveSeen;
 extern long baudrate;
+#ifdef SIMULATE_FAN_PWM
+extern int fan_speed;
+#endif
 #if OS_ANALOG_INPUTS>0
 // Get last result for pin x
 extern volatile uint osAnalogInputValues[OS_ANALOG_INPUTS];
